@@ -198,14 +198,14 @@ while ! grep -q "Final Performance Info" seg.log; do
 done
 
 # Progress Coordinate Calculation
-{% for output_file in cv_output_files %}
-{{ output_file.replace('.dat', '') }}=${{ output_file.replace('.dat', '') }}
-{% endfor %}
-
 COMMAND="         parm {{ protein_name }}.prmtop\\n"
 COMMAND="${COMMAND} trajin $WEST_CURRENT_SEG_DATA_REF/parent.rst\\n"
 COMMAND="${COMMAND} trajin $WEST_CURRENT_SEG_DATA_REF/seg.nc\\n"
+{% if has_pdb_file %}
 COMMAND="${COMMAND} reference $WEST_SIM_ROOT/common_files/{{ protein_name }}.pdb\\n"
+{% else %}
+COMMAND="${COMMAND} reference $WEST_SIM_ROOT/common_files/{{ protein_name }}.inpcrd\\n"
+{% endif %}
 {{ cv_commands }}
 COMMAND="${COMMAND} go\\n"
 
@@ -349,13 +349,67 @@ wait
             "dihedral": f'COMMAND="${{COMMAND}} dihedral {cv_name} :1@C :1@N :2@CA :2@C out {output_file}\\n"',
             "hbond": f'COMMAND="${{COMMAND}} hbond {cv_name} out {output_file}\\n"',
             "surface_area": f'COMMAND="${{COMMAND}} surf {cv_name} :* out {output_file}\\n"',
-            "secondary_structure": f'COMMAND="${{COMMAND}} secstruct {cv_name} :* out {output_file}\\n"'
+            "secondary_structure": f'COMMAND="${{COMMAND}} secstruct {cv_name} :* out {output_file}\\n"',
+            "custom": f'# Custom CV: {cv_name} - Manual implementation required\\n# TODO: Replace this comment with your custom CPPTRAJ command\\n# COMMAND="${{COMMAND}} [YOUR_CUSTOM_CPPTRAJ_COMMAND] out {output_file}\\n"\\n# NOTE: Make sure the result is written to {output_file} and extract value to $WEST_PCOORD_RETURN'
         }
         return commands.get(cv_type, commands["rmsd"])  # Default to RMSD
     
-    def generate_configs(self, params: Dict[str, Any]) -> Dict[str, str]:
+    def generate_configs(self, params: Dict[str, Any], uploaded_files: Dict[str, Dict] = None) -> Dict[str, str]:
         """Generate all configuration files based on user parameters"""
         configs = {}
+        
+        # Handle uploaded files if provided
+        if uploaded_files:
+            protein_name = params.get('protein_name', 'chignolin')
+            
+            # Handle structure files (PDB or INPCRD)
+            if 'pdb_file' in uploaded_files:
+                pdb_content = uploaded_files['pdb_file']['content']
+                # PDB files are text files, so decode as UTF-8
+                if isinstance(pdb_content, bytes):
+                    try:
+                        pdb_content = pdb_content.decode('utf-8')
+                    except UnicodeDecodeError:
+                        # Try with latin-1 if UTF-8 fails
+                        pdb_content = pdb_content.decode('latin-1')
+                configs[f'common_files/{protein_name}.pdb'] = pdb_content
+                configs[f'cMD/{protein_name}.pdb'] = pdb_content
+            
+            if 'inpcrd_file' in uploaded_files:
+                inpcrd_content = uploaded_files['inpcrd_file']['content']
+                # INPCRD files are binary, store as base64 encoded string
+                if isinstance(inpcrd_content, bytes):
+                    import base64
+                    inpcrd_content = base64.b64encode(inpcrd_content).decode('ascii')
+                configs[f'common_files/{protein_name}.inpcrd'] = inpcrd_content
+                configs[f'cMD/{protein_name}.inpcrd'] = inpcrd_content
+            
+            # Handle PRMTOP file
+            if 'prmtop_file' in uploaded_files:
+                prmtop_content = uploaded_files['prmtop_file']['content']
+                # PRMTOP files are binary, store as base64 encoded string
+                if isinstance(prmtop_content, bytes):
+                    import base64
+                    prmtop_content = base64.b64encode(prmtop_content).decode('ascii')
+                configs[f'common_files/{protein_name}.prmtop'] = prmtop_content
+                configs[f'cMD/{protein_name}.prmtop'] = prmtop_content
+            
+            # Handle optional RST file
+            if 'rst_file' in uploaded_files:
+                rst_content = uploaded_files['rst_file']['content']
+                rst_as_bstate = params.get('rst_as_bstate', False)
+                
+                # RST files are binary, store as base64 encoded string
+                if isinstance(rst_content, bytes):
+                    import base64
+                    rst_content = base64.b64encode(rst_content).decode('ascii')
+                
+                if rst_as_bstate:
+                    # Place as bstate.rst in bstates folder for ParGaMD simulation
+                    configs['bstates/bstate.rst'] = rst_content
+                else:
+                    # Place in cMD folder for conventional MD
+                    configs[f'cMD/{protein_name}.rst'] = rst_content
         
         include_inf = bool(params.get('include_infinite_bounds', True))
         
@@ -394,11 +448,20 @@ wait
         
         for i, cv in enumerate(cv_list):
             cv_type = cv['type']
-            output_file = f"{cv_type}_{i+1}.dat"
-            cv_name = f"CV{i+1}"
+            
+            # Use custom name if available, otherwise default naming
+            if cv_type == 'custom' and 'name' in cv:
+                cv_name = cv['name']
+                output_file = f"custom_{i+1}.dat"
+            else:
+                cv_name = f"CV{i+1}"
+                output_file = f"{cv_type}_{i+1}.dat"
             
             cv_commands.append(self._get_cpptraj_command(cv_type, output_file, cv_name))
             cv_output_files.append(output_file)
+        
+        # Determine if PDB file is available
+        has_pdb_file = uploaded_files and 'pdb_file' in uploaded_files if uploaded_files else False
         
         # Generate runseg.sh
         configs['westpa_scripts/runseg.sh'] = self.templates['runseg_sh'].render(
@@ -406,7 +469,8 @@ wait
             enable_gpu_parallelization=params['enable_gpu_parallelization'],
             cv_commands='\n'.join(cv_commands),
             cv_output_files=cv_output_files,
-            cv_count=len(cv_list)
+            cv_count=len(cv_list),
+            has_pdb_file=has_pdb_file
         )
         
         # Generate run_cmd.sh
@@ -428,7 +492,8 @@ wait
             protein_name=params['protein_name'],
             cv_commands='\n'.join(cv_commands),
             cv_output_files=cv_output_files,
-            cv_count=len(cv_list)
+            cv_count=len(cv_list),
+            has_pdb_file=has_pdb_file
         )
         
         # Add all main folder .sh files
@@ -451,15 +516,26 @@ wait
                 # Create a basic template if file doesn't exist
                 configs[py_file] = f"#!/usr/bin/env python3\n# {py_file}\nprint('Running {py_file}')\n"
         
-        # Add common_files folder contents
+        # Add common_files folder contents (only if not already provided by uploaded files)
+        protein_name = params.get('protein_name', 'chignolin')
         common_files = [
-            'common_files/chignolin.pdb',
-            'common_files/chignolin.prmtop', 
             'common_files/gamd-restart.dat',
             'common_files/md_init.in',
             'common_files/md.in'
         ]
+        
+        # Only add default structure/topology files if not provided by uploads
+        if not (uploaded_files and ('pdb_file' in uploaded_files or 'inpcrd_file' in uploaded_files)):
+            common_files.append(f'common_files/{protein_name}.pdb')
+        
+        if not (uploaded_files and 'prmtop_file' in uploaded_files):
+            common_files.append(f'common_files/{protein_name}.prmtop')
+        
         for file_path in common_files:
+            # Skip if already in configs (from uploaded files)
+            if file_path in configs:
+                continue
+                
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     configs[file_path] = f.read()
@@ -472,14 +548,22 @@ wait
                 else:
                     configs[file_path] = f"# Placeholder {file_path}\n"
         
-        # Add bstates folder contents
+        # Add bstates folder contents (only if not already provided by uploaded files)
         bstates_files = [
             'bstates/bstate_cpptraj.rst',
-            'bstates/bstate.rst',
             'bstates/bstates.txt',
             'bstates/md.rst'
         ]
+        
+        # Only add default bstate.rst if not provided by uploads as bstate
+        if not (uploaded_files and 'rst_file' in uploaded_files and params.get('rst_as_bstate', False)):
+            bstates_files.append('bstates/bstate.rst')
+        
         for file_path in bstates_files:
+            # Skip if already in configs (from uploaded files)
+            if file_path in configs:
+                continue
+                
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     configs[file_path] = f.read()
@@ -490,15 +574,28 @@ wait
                 else:
                     configs[file_path] = f"# Placeholder {file_path}\n"
         
-        # Add additional cMD folder contents
+        # Add additional cMD folder contents (only if not already provided by uploaded files)
         cmd_additional_files = [
-            'cMD/chignolin.pdb',
-            'cMD/chignolin.prmtop', 
-            'cMD/chignolin.rst',
             'cMD/md.in',
             'cMD/md_cmd.in'
         ]
+        
+        # Only add default structure/topology files if not provided by uploads
+        if not (uploaded_files and ('pdb_file' in uploaded_files or 'inpcrd_file' in uploaded_files)):
+            cmd_additional_files.append(f'cMD/{protein_name}.pdb')
+        
+        if not (uploaded_files and 'prmtop_file' in uploaded_files):
+            cmd_additional_files.append(f'cMD/{protein_name}.prmtop')
+        
+        # Only add default RST file if not provided by uploads or if RST is not being used as bstate
+        if not (uploaded_files and 'rst_file' in uploaded_files):
+            cmd_additional_files.append(f'cMD/{protein_name}.rst')
+        
         for file_path in cmd_additional_files:
+            # Skip if already in configs (from uploaded files)
+            if file_path in configs:
+                continue
+                
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     configs[file_path] = f.read()
@@ -564,13 +661,13 @@ fi
 
 cd $WEST_SIM_ROOT
 
-{% for output_file in cv_output_files %}
-{{ output_file.replace('.dat', '') }}=$(mktemp)
-{% endfor %}
-
 COMMAND="parm $WEST_SIM_ROOT/common_files/{{ protein_name }}.prmtop \\n"
 COMMAND="${COMMAND} trajin $WEST_STRUCT_DATA_REF \\n"
+{% if has_pdb_file %}
 COMMAND="${COMMAND} reference $WEST_SIM_ROOT/common_files/{{ protein_name }}.pdb \\n"
+{% else %}
+COMMAND="${COMMAND} reference $WEST_SIM_ROOT/common_files/{{ protein_name }}.inpcrd \\n"
+{% endif %}
 {{ cv_commands }}
 COMMAND="${COMMAND} go"
 
@@ -578,18 +675,13 @@ echo -e "${COMMAND}" | $CPPTRAJ
 
 # Extract progress coordinate values
 {% if cv_count == 1 %}
-cat ${{ cv_output_files[0].replace('.dat', '') }} | tail -n 1 | awk {'print $2'} > $WEST_PCOORD_RETURN
+cat {{ cv_output_files[0] }} | tail -n 1 | awk {'print $2'} > $WEST_PCOORD_RETURN
 {% else %}
-paste {% for output_file in cv_output_files %}<(cat ${{ output_file.replace('.dat', '') }} | tail -n 1 | awk {'print $2'}) {% endfor %}>$WEST_PCOORD_RETURN
+paste {% for output_file in cv_output_files %}<(cat {{ output_file }} | tail -n 1 | awk {'print $2'}) {% endfor %}>$WEST_PCOORD_RETURN
 {% endif %}
 
 if [ -n "$SEG_DEBUG" ] ; then
   head -v $WEST_PCOORD_RETURN
 fi
-
-# Clean up
-{% for output_file in cv_output_files %}
-rm ${{ output_file.replace('.dat', '') }}
-{% endfor %}
 """)
 

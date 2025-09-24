@@ -161,18 +161,15 @@ def render_molecular_system():
         )
         
         st.subheader("File Uploads")
-        
-        # Required files section
-        st.write("**Required Files**")
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("**Structure File (Choose one)**")
+            st.write("**PDB File**")
             pdb_file = st.file_uploader(
                 "Upload PDB file",
                 type=['pdb'],
                 key="pdb_uploader",
-                help="Protein structure file (.pdb)"
+                help="Protein structure file"
             )
             if pdb_file:
                 st.session_state.uploaded_files['pdb_file'] = {
@@ -180,27 +177,14 @@ def render_molecular_system():
                     'content': pdb_file.read()
                 }
                 st.success(f"✅ {pdb_file.name} uploaded")
-            
-            inpcrd_file = st.file_uploader(
-                "Upload INPCRD file",
-                type=['inpcrd'],
-                key="inpcrd_uploader", 
-                help="AMBER coordinate file (.inpcrd)"
-            )
-            if inpcrd_file:
-                st.session_state.uploaded_files['inpcrd_file'] = {
-                    'name': inpcrd_file.name,
-                    'content': inpcrd_file.read()
-                }
-                st.success(f"✅ {inpcrd_file.name} uploaded")
         
         with col2:
-            st.write("**Topology File**")
+            st.write("**PRMTOP File**")
             prmtop_file = st.file_uploader(
                 "Upload PRMTOP file",
                 type=['prmtop'],
                 key="prmtop_uploader",
-                help="AMBER topology file (.prmtop) - Required"
+                help="AMBER topology file"
             )
             if prmtop_file:
                 st.session_state.uploaded_files['prmtop_file'] = {
@@ -208,37 +192,6 @@ def render_molecular_system():
                     'content': prmtop_file.read()
                 }
                 st.success(f"✅ {prmtop_file.name} uploaded")
-        
-        # Optional files section
-        st.write("**Optional Files**")
-        rst_file = st.file_uploader(
-            "Upload RST file (Optional)",
-            type=['rst'],
-            key="rst_uploader",
-            help="AMBER restart file (.rst) - Optional restart coordinates"
-        )
-        
-        if rst_file:
-            st.session_state.uploaded_files['rst_file'] = {
-                'name': rst_file.name,
-                'content': rst_file.read()
-            }
-            st.success(f"✅ {rst_file.name} uploaded")
-            
-            # Ask user where to place the RST file
-            st.write("**RST File Placement**")
-            rst_placement = st.radio(
-                "Where should the RST file be placed?",
-                ["Start ParGaMD simulation (bstates folder)", "Conventional MD only (cMD folder)"],
-                help="Choose based on whether you want to start with weighted ensemble (ParGaMD) or conventional MD"
-            )
-            
-            if rst_placement == "Start ParGaMD simulation (bstates folder)":
-                st.session_state.form_data['rst_as_bstate'] = True
-                st.info("🔄 RST file will be placed as bstate.rst in bstates folder for ParGaMD simulation")
-            else:
-                st.session_state.form_data['rst_as_bstate'] = False
-                st.info("📁 RST file will be placed in cMD folder for conventional MD")
         
         col1, col2 = st.columns([1, 4])
         with col1:
@@ -250,24 +203,13 @@ def render_molecular_system():
             st.session_state.current_step = 1
             st.rerun()
         elif next_btn:
-            # Check required files
-            has_structure = ('pdb_file' in st.session_state.uploaded_files or 
-                           'inpcrd_file' in st.session_state.uploaded_files)
-            has_prmtop = 'prmtop_file' in st.session_state.uploaded_files
-            has_protein_name = st.session_state.form_data['protein_name']
-            
-            if has_protein_name and has_structure and has_prmtop:
+            if (st.session_state.form_data['protein_name'] and 
+                'pdb_file' in st.session_state.uploaded_files and 
+                'prmtop_file' in st.session_state.uploaded_files):
                 st.session_state.current_step = 3
                 st.rerun()
             else:
-                missing = []
-                if not has_protein_name:
-                    missing.append("protein name")
-                if not has_structure:
-                    missing.append("PDB or INPCRD file")
-                if not has_prmtop:
-                    missing.append("PRMTOP file")
-                st.error(f"Please provide: {', '.join(missing)}")
+                st.error("Please fill in protein name and upload both PDB and PRMTOP files")
 
 def render_we_parameters():
     """Render WE parameters step"""
@@ -276,9 +218,6 @@ def render_we_parameters():
     # CV Management Section (outside form)
     st.subheader("Collective Variables (CVs)")
     st.caption("💡 At least one CV is required. Add more CVs for enhanced analysis.")
-    
-    # Custom CV info
-    st.info("🔧 **Custom CVs**: Select 'Custom CV' from the dropdown to define your own collective variable. You'll need to manually implement the calculation logic in the generated scripts.")
     
     # Initialize CV list if not exists
     if 'cv_list' not in st.session_state.form_data:
@@ -295,8 +234,7 @@ def render_we_parameters():
         "dihedral": "Dihedral Angle",
         "hbond": "Hydrogen Bonds",
         "surface_area": "Surface Area",
-        "secondary_structure": "Secondary Structure",
-        "custom": "Custom CV (User-defined)"
+        "secondary_structure": "Secondary Structure"
     }
     
     # CV help and command preview
@@ -308,8 +246,7 @@ def render_we_parameters():
         "dihedral": "Backbone/sidechain dihedral angles",
         "hbond": "Number or strength of hydrogen bonds",
         "surface_area": "Solvent accessible surface area",
-        "secondary_structure": "Secondary structure content (helix, sheet, coil)",
-        "custom": "Define your own collective variable with custom calculations"
+        "secondary_structure": "Secondary structure content (helix, sheet, coil)"
     }
     
     cv_commands = {
@@ -320,15 +257,13 @@ def render_we_parameters():
         "dihedral": "dihedral PC1 :1@C :1@N :2@CA :2@C out dihedral.dat",
         "hbond": "hbond PC1 out hbond.dat",
         "surface_area": "surf PC1 :* out surface_area.dat",
-        "secondary_structure": "secstruct PC1 :* out secondary_structure.dat",
-        "custom": "Custom CV - Manual implementation required"
+        "secondary_structure": "secstruct PC1 :* out secondary_structure.dat"
     }
     
     # Display existing CVs
     cv_list = st.session_state.form_data['cv_list']
     for i, cv in enumerate(cv_list):
-        cv_display_name = cv.get('name', cv_options.get(cv['type'], cv['type'])) if cv['type'] == 'custom' else cv_options.get(cv['type'], cv['type'])
-        with st.expander(f"CV {i+1}: {cv_display_name}", expanded=True):
+        with st.expander(f"CV {i+1}: {cv_options.get(cv['type'], cv['type'])}", expanded=True):
             col_cv1, col_cv2 = st.columns([2, 1])
             
             with col_cv1:
@@ -343,23 +278,7 @@ def render_we_parameters():
                 
                 # Show help and command preview
                 st.caption(f"💡 {cv_help[cv['type']]}")
-                
-                # Handle custom CV differently
-                if cv['type'] == 'custom':
-                    # Custom CV name input
-                    cv['name'] = st.text_input(
-                        "Custom CV Name",
-                        value=cv.get('name', f'CustomCV{i+1}'),
-                        key=f"cv_name_{i}",
-                        help="Give your custom CV a descriptive name"
-                    )
-                    
-                    # Show custom message instead of CPPTRAJ command
-                    st.warning("⚠️ **Custom CV Implementation Required**")
-                    st.info("🔧 Make sure this CV is sent to `$WEST_PCOORD_RETURN` in `runseg.sh` and `get_pcoord.sh`")
-                    st.caption("You'll need to manually implement the calculation logic in the generated scripts.")
-                else:
-                    st.code(cv_commands[cv['type']], language='bash')
+                st.code(cv_commands[cv['type']], language='bash')
                 
                 # CV parameters
                 col_min, col_max = st.columns(2)
@@ -500,8 +419,7 @@ def render_review_and_edit():
     if not st.session_state.generated_configs:
         try:
             st.session_state.generated_configs = st.session_state.config_generator.generate_configs(
-                st.session_state.form_data,
-                st.session_state.uploaded_files
+                st.session_state.form_data
             )
             st.success("✅ Configuration files generated successfully!")
         except Exception as e:
@@ -525,7 +443,7 @@ def render_review_and_edit():
                 "Print Frequency": st.session_state.form_data.get('ntpr', 500)
             },
             "Progress Coordinates": {
-                f"CV {i+1} ({cv.get('name', cv['type'])})": f"{cv['min']} to {cv['max']} (step: {cv['step']})"
+                f"CV {i+1} ({cv['type']})": f"{cv['min']} to {cv['max']} (step: {cv['step']})"
                 for i, cv in enumerate(st.session_state.form_data.get('cv_list', []))
             },
             "GPU": {
@@ -536,20 +454,13 @@ def render_review_and_edit():
     with col2:
         st.subheader("📝 Live Editor")
         
-        # File selection dropdown (exclude binary files)
-        all_files = list(st.session_state.generated_configs.keys())
-        binary_extensions = ['.prmtop', '.inpcrd', '.rst', '.nc', '.dcd', '.trr', '.xtc']
-        file_options = [f for f in all_files if not any(f.endswith(ext) for ext in binary_extensions)]
-        
-        if not file_options:
-            st.warning("No editable files found. All generated files are binary.")
-            selected_file = None
-        else:
-            selected_file = st.selectbox(
-                "Select file to edit:",
-                file_options,
-                help="Choose a configuration file to edit (binary files are excluded)"
-            )
+        # File selection dropdown
+        file_options = list(st.session_state.generated_configs.keys())
+        selected_file = st.selectbox(
+            "Select file to edit:",
+            file_options,
+            help="Choose a configuration file to edit"
+        )
         
         if selected_file:
             # Determine language for syntax highlighting
@@ -621,8 +532,7 @@ def render_review_and_edit():
                 try:
                     # Regenerate original content
                     original_configs = st.session_state.config_generator.generate_configs(
-                        st.session_state.form_data,
-                        st.session_state.uploaded_files
+                        st.session_state.form_data
                     )
                     st.session_state.generated_configs[selected_file] = original_configs[selected_file]
                     st.success(f"✅ {selected_file} reset to original")
@@ -640,8 +550,7 @@ def render_review_and_edit():
         if st.button("Regenerate All"):
             try:
                 st.session_state.generated_configs = st.session_state.config_generator.generate_configs(
-                    st.session_state.form_data,
-                    st.session_state.uploaded_files
+                    st.session_state.form_data
                 )
                 st.success("✅ All configuration files regenerated!")
                 st.rerun()
@@ -649,67 +558,39 @@ def render_review_and_edit():
                 st.error(f"❌ Error regenerating configurations: {str(e)}")
     with col3:
         if st.button("Next Step →", type="primary"):
-            st.session_state.current_step = 6  # Go to download step
+            st.session_state.current_step = 6
             st.rerun()
 
 def create_zip_file():
     """Create ZIP file with all configurations"""
-    import base64
+    zip_buffer = io.BytesIO()
     
-    try:
-        zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # Add generated configuration files
+        for file_path, content in st.session_state.generated_configs.items():
+            zip_file.writestr(file_path, content)
         
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # Add generated configuration files
-            for file_path, content in st.session_state.generated_configs.items():
-                # Check if this is a binary file that was base64 encoded
-                binary_extensions = ['.prmtop', '.inpcrd', '.rst']
-                if any(file_path.endswith(ext) for ext in binary_extensions):
-                    try:
-                        # Try to decode as base64 (binary files are stored as base64)
-                        binary_content = base64.b64decode(content)
-                        zip_file.writestr(file_path, binary_content)
-                    except:
-                        # If decoding fails, write as text (fallback)
-                        zip_file.writestr(file_path, content)
-                else:
-                    # Text files - write as is
-                    zip_file.writestr(file_path, content)
-        
-        zip_buffer.seek(0)
-        return zip_buffer
-    except Exception as e:
-        st.error(f"Error creating ZIP file: {str(e)}")
-        return io.BytesIO()
+        # Add uploaded files
+        for file_type, file_data in st.session_state.uploaded_files.items():
+            if file_type == 'pdb_file':
+                zip_file.writestr(f"common_files/{st.session_state.form_data.get('protein_name', 'protein')}.pdb", 
+                                file_data['content'])
+            elif file_type == 'prmtop_file':
+                zip_file.writestr(f"common_files/{st.session_state.form_data.get('protein_name', 'protein')}.prmtop", 
+                                file_data['content'])
+    
+    zip_buffer.seek(0)
+    return zip_buffer
 
 def render_download():
     """Render download step"""
     st.markdown('<div class="step-header"><h2>📥 Download Configuration Bundle</h2></div>', unsafe_allow_html=True)
-    
-    # Generate configurations if not already done
-    if not st.session_state.generated_configs:
-        try:
-            st.session_state.generated_configs = st.session_state.config_generator.generate_configs(
-                st.session_state.form_data,
-                st.session_state.uploaded_files
-            )
-            st.success("✅ Configuration files generated successfully!")
-        except Exception as e:
-            st.error(f"❌ Error generating configurations: {str(e)}")
-            return
     
     if not st.session_state.generated_configs:
         st.error("❌ No configuration files generated. Please go back and complete the setup.")
         return
     
     st.success("🎉 Your ParGaMD configuration is ready!")
-    
-    # Debug information
-    with st.expander("🔍 Debug Information", expanded=False):
-        st.write(f"**Number of generated files**: {len(st.session_state.generated_configs)}")
-        st.write(f"**Files generated**: {list(st.session_state.generated_configs.keys())}")
-        st.write(f"**Form data keys**: {list(st.session_state.form_data.keys())}")
-        st.write(f"**Uploaded files**: {list(st.session_state.uploaded_files.keys())}")
     
     # Create download button
     zip_file = create_zip_file()
@@ -726,54 +607,13 @@ def render_download():
         help="Download all configuration files as a ZIP archive"
     )
     
-    # Completion message
-    st.markdown("---")
-    st.subheader("✅ Configuration Complete!")
-    st.info("""
-    **Your ParGaMD configuration is ready for deployment!**
-    
-    **Next Steps:**
-    1. **Download the ZIP file** using the button above
-    2. **Upload to your HPC system** using SCP, SFTP, or your institution's file manager
-    3. **Extract the files** on your HPC system: `unzip {filename}`
-    4. **Follow the instructions** in the generated scripts to start your simulation
-    
-    **Note**: Most HPC systems require Duo two-factor authentication for SSH access.
-    Use your terminal or file manager to upload the configuration files.
-    """)
-    
-    # Show file contents summary
+    # Show file contents
     st.subheader("📁 Bundle Contents")
     
-    all_files = list(st.session_state.generated_configs.keys())
-    binary_extensions = ['.prmtop', '.inpcrd', '.rst', '.nc', '.dcd', '.trr', '.xtc']
-    text_files = [f for f in all_files if not any(f.endswith(ext) for ext in binary_extensions)]
-    binary_files = [f for f in all_files if any(f.endswith(ext) for ext in binary_extensions)]
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write(f"**📝 Text Files ({len(text_files)})**")
-        for file_path in sorted(text_files):
-            st.write(f"• {file_path}")
-    
-    with col2:
-        st.write(f"**🔒 Binary Files ({len(binary_files)})**")
-        for file_path in sorted(binary_files):
-            st.write(f"• {file_path}")
-    
-    with st.expander("View text files content"):
-        for file_path in sorted(text_files):
-            content = st.session_state.generated_configs[file_path]
+    with st.expander("View generated files"):
+        for file_path, content in st.session_state.generated_configs.items():
             st.write(f"**{file_path}**")
-            if file_path.endswith('.cfg'):
-                st.code(content, language='yaml')
-            elif file_path.endswith('.sh'):
-                st.code(content, language='bash')
-            elif file_path.endswith('.py'):
-                st.code(content, language='python')
-            else:
-                st.code(content, language='text')
+            st.code(content, language='yaml' if file_path.endswith('.cfg') else 'bash')
             st.divider()
     
     # Navigation
