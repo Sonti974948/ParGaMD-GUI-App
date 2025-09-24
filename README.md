@@ -170,4 +170,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Ready to run ParGaMD simulations?** 🚀 [Try the live app](https://[app-name].streamlit.app) or [deploy your own](DEPLOYMENT.md)!
+**Ready to run ParGaMD simulations?** 🚀 [Try the live app](https://pargamd-gui.streamlit.app/) or [deploy your own](DEPLOYMENT.md)!
