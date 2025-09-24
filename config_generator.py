@@ -18,10 +18,8 @@ class ParGaMDConfigGenerator:
         """Load Jinja2 templates for configuration files"""
         return {
             'west_cfg': self._get_west_cfg_template(),
-            'env_sh': self._get_env_sh_template(),
             'runseg_sh': self._get_runseg_sh_template(),
-            'run_cmd_sh': self._get_run_cmd_sh_template(),
-            'run_we_sh': self._get_run_we_sh_template()
+            'run_cmd_sh': self._get_run_cmd_sh_template()
         }
     
     def _get_west_cfg_template(self):
@@ -98,8 +96,131 @@ west:
       stderr:     stdout
 """)
     
-    def _get_env_sh_template(self):
-        return Template("""#!/bin/bash
+    def _get_env_sh_template(self, hpc_system="expanse"):
+        """Get environment setup template based on HPC system"""
+        if hpc_system == "tacc_frontera":
+            return Template("""#!/bin/bash
+
+source ~/.profile
+export MY_SPECTRUM_OPTIONS="--gpu"
+ml purge
+module load launcher_gpu/1.1
+ml cuda/11.3
+export LD_LIBRARY_PATH=/usr/lib64:$LD_LIBRARY_PATH
+module load intel/19.1.1
+ml impi/19.0.9
+module use /scratch1/projects/tacc/csa/benchpro/apps/csa-amaro/amber/modulefiles
+ml amber/22_rtx
+conda init
+conda activate westpa-2.0
+
+export PYTHONPATH=/home1/10091/ssonti/miniconda3/envs/westpa-2.0/bin/python:/scratch1/projects/tacc/csa/benchpro/apps/csa-amaro/amber/amber22_rtx/lib/python3.7/site-packages
+
+# Explicitly name our simulation root directory
+if [[ -z "$WEST_SIM_ROOT" ]]; then
+    export WEST_SIM_ROOT="$PWD"
+fi
+
+export SIM_NAME=$(basename $WEST_SIM_ROOT)
+echo "simulation $SIM_NAME root is $WEST_SIM_ROOT"
+
+# Set up environment for dynamics
+export AMBERHOME=${TACC_AMBER_DIR}
+source $AMBERHOME/amber.sh
+export PATH=$AMBERHOME/bin:$PATH
+
+# Set runtime commands (this is said to be easier on the filesystem)
+export NODELOC=/scratch1/10091/ssonti/ParGaMD
+export USE_LOCAL_SCRATCH=1
+
+export WM_ZMQ_MASTER_HEARTBEAT=100
+export WM_ZMQ_WORKER_HEARTBEAT=100
+export WM_ZMQ_TIMEOUT_FACTOR=300
+export BASH=$SWROOT/bin/bash
+export PERL=$SWROOT/usr/bin/perl
+export ZSH=$SWROOT/bin/zsh
+export IFCONFIG=$SWROOT/bin/ifconfig
+export CUT=$SWROOT/usr/bin/cut
+export TR=$SWROOT/usr/bin/tr
+export LN=$SWROOT/bin/ln
+export CP=$SWROOT/bin/cp
+export RM=$SWROOT/bin/rm
+export SED=$SWROOT/bin/sed
+export CAT=$SWROOT/bin/cat
+export HEAD=$SWROOT/bin/head
+export TAR=$SWROOT/bin/tar
+export AWK=$SWROOT/usr/bin/awk
+export PASTE=$SWROOT/usr/bin/paste
+export GREP=$SWROOT/bin/grep
+export SORT=$SWROOT/usr/bin/sort
+export UNIQ=$SWROOT/usr/bin/uniq
+export HEAD=$SWROOT/usr/bin/head
+export MKDIR=$SWROOT/bin/mkdir
+export ECHO=$SWROOT/bin/echo
+export DATE=$SWROOT/bin/date
+export SANDER=$AMBERHOME/bin/sander
+export PMEMD=$AMBERHOME/bin/pmemd.cuda
+export CPPTRAJ=$AMBERHOME/bin/cpptraj
+""")
+        elif hpc_system == "hpc2_ucd":
+            # HPC2 (UCD) template - using actual HPC2 configuration
+            return Template("""#!/bin/bash
+
+source ~/.bash_profile
+module load cuda/11.8.0
+module load amber/22
+module load conda3/4.X
+conda activate westpa-2.0
+
+export PATH=$PATH:$HOME/bin
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+
+# Explicitly name our simulation root directory
+if [[ -z "$WEST_SIM_ROOT" ]]; then
+    export WEST_SIM_ROOT="$PWD"
+fi
+
+export SIM_NAME=$(basename $WEST_SIM_ROOT)
+echo "simulation $SIM_NAME root is $WEST_SIM_ROOT"
+
+# Set up environment for dynamics
+source $AMBERHOME/amber.sh
+
+# Set runtime commands (this is said to be easier on the filesystem)
+export NODELOC=/home/sontisid/ParGaMD_MP/ParGaMD
+export USE_LOCAL_SCRATCH=1
+
+export WM_ZMQ_MASTER_HEARTBEAT=100
+export WM_ZMQ_WORKER_HEARTBEAT=100
+export WM_ZMQ_TIMEOUT_FACTOR=300
+export BASH=$SWROOT/bin/bash
+export PERL=$SWROOT/usr/bin/perl
+export ZSH=$SWROOT/bin/zsh
+export IFCONFIG=$SWROOT/bin/ifconfig
+export CUT=$SWROOT/usr/bin/cut
+export TR=$SWROOT/usr/bin/tr
+export LN=$SWROOT/bin/ln
+export CP=$SWROOT/bin/cp
+export RM=$SWROOT/bin/rm
+export SED=$SWROOT/bin/sed
+export CAT=$SWROOT/bin/cat
+export HEAD=$SWROOT/bin/head
+export TAR=$SWROOT/bin/tar
+export AWK=$SWROOT/usr/bin/awk
+export PASTE=$SWROOT/usr/bin/paste
+export GREP=$SWROOT/bin/grep
+export SORT=$SWROOT/usr/bin/sort
+export UNIQ=$SWROOT/usr/bin/uniq
+export HEAD=$SWROOT/usr/bin/head
+export MKDIR=$SWROOT/bin/mkdir
+export ECHO=$SWROOT/bin/echo
+export DATE=$SWROOT/bin/date
+export SANDER=$AMBERHOME/bin/sander
+export PMEMD=$AMBERHOME/bin/pmemd.cuda
+export CPPTRAJ=$AMBERHOME/bin/cpptraj
+""")
+        else:  # Default to Expanse
+            return Template("""#!/bin/bash
 
 source ~/.bash_profile
 module purge
@@ -251,8 +372,149 @@ source $AMBERHOME/amber.sh
 pmemd.cuda -O -i md.in -o md.out -p {{ protein_name }}.prmtop -c {{ protein_name }}.rst -r md_cmd.rst -x md.nc
 """)
     
-    def _get_run_we_sh_template(self):
-        return Template("""#!/bin/bash
+    def _get_run_we_sh_template(self, hpc_system="expanse"):
+        """Get run_WE.sh template based on HPC system"""
+        if hpc_system == "tacc_frontera":
+            return Template("""#!/bin/bash
+#SBATCH -J {{ protein_name }}_WE_run
+#SBATCH -o job.out
+#SBATCH -e job.err
+#SBATCH -p rtx
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -t 48:00:00
+#SBATCH -A {{ account }}
+
+set -x
+source ~/.bashrc
+cd $SLURM_SUBMIT_DIR
+
+export MY_SPECTRUM_OPTIONS="--gpu"
+ml purge
+module load launcher_gpu/1.1
+ml cuda/11.3
+export LD_LIBRARY_PATH=/usr/lib64:$LD_LIBRARY_PATH
+module load intel/19.1.1
+ml impi/19.0.9
+module use /scratch1/projects/tacc/csa/benchpro/apps/csa-amaro/amber/modulefiles
+ml amber/22_rtx
+conda init
+conda activate westpa-2.0
+
+export AMBERHOME=${TACC_AMBER_DIR}
+echo $AMBERHOME
+source $AMBERHOME/amber.sh
+
+export PATH=$AMBERHOME/bin:$PATH
+
+export WEST_SIM_ROOT=$SLURM_SUBMIT_DIR
+cd $WEST_SIM_ROOT
+export PYTHONPATH=/home1/10091/ssonti/miniconda3/envs/westpa-2.0/bin/python:/scratch1/projects/tacc/csa/benchpro/apps/csa-amaro/amber/amber22_rtx/lib/python3.7/site-packages
+
+cp cMD/gamd-restart.dat common_files/gamd-restart.dat
+cp cMD/md.rst bstates/bstate.rst
+echo "Files copied"
+
+./init.sh
+echo "init.sh ran"
+source env.sh || exit 1
+env | sort
+SERVER_INFO=$WEST_SIM_ROOT/west_zmq_info.json
+
+#TODO: set num_gpu_per_node
+num_gpu_per_node=1
+rm -rf nodefilelist.txt
+scontrol show hostname $SLURM_JOB_NODELIST > nodefilelist.txt
+
+# start server
+w_run --work-manager=zmq --n-workers=0 --zmq-mode=master --zmq-write-host-info=$SERVER_INFO --zmq-comm-mode=tcp &> west-$SLURM_JOBID-local.log &
+
+# wait on host info file up to 1 min
+for ((n=0; n<60; n++)); do
+    if [ -e $SERVER_INFO ] ; then
+        echo "== server info file $SERVER_INFO =="
+        cat $SERVER_INFO
+        break
+    fi
+    sleep 1
+done
+
+# exit if host info file doesn't appear in one minute
+if ! [ -e $SERVER_INFO ] ; then
+    echo 'server failed to start'
+    exit 1
+fi
+export CUDA_VISIBLE_DEVICES=0
+echo $CUDA_VISIBLE_DEVICES
+for node in $(cat nodefilelist.txt); do
+    ssh -o StrictHostKeyChecking=no $node $PWD/node.sh $SLURM_SUBMIT_DIR $SLURM_JOBID $node $CUDA_VISIBLE_DEVICES --work-manager=zmq --n-workers=$num_gpu_per_node --zmq-mode=client --zmq-read-host-info=$SERVER_INFO --zmq-comm-mode=tcp &
+done
+wait
+""")
+        elif hpc_system == "hpc2_ucd":
+            # HPC2 (UCD) template - using actual HPC2 configuration
+            return Template("""#!/bin/bash
+#SBATCH --job-name="{{ protein_name }}_WE_run"
+#SBATCH --account={{ account }}
+#SBATCH --partition=gpu-ahn
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=48:00:00
+#SBATCH --output=job.out
+#SBATCH --error=job.err
+
+set -x
+cd $SLURM_SUBMIT_DIR
+source ~/.bashrc
+
+module load cuda/11.8.0
+module load amber/22
+module load conda3/4.X
+conda activate westpa-2.0
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+export WEST_SIM_ROOT=$SLURM_SUBMIT_DIR
+cd $WEST_SIM_ROOT
+
+./init.sh
+echo "init.sh ran"
+source env.sh || exit 1
+env | sort
+SERVER_INFO=$WEST_SIM_ROOT/west_zmq_info.json
+
+#TODO: set num_gpu_per_node
+num_gpu_per_node=1
+rm -rf nodefilelist.txt
+scontrol show hostname $SLURM_JOB_NODELIST > nodefilelist.txt
+
+# start server
+w_run --work-manager=zmq --n-workers=0 --zmq-mode=master --zmq-write-host-info=$SERVER_INFO --zmq-comm-mode=tcp &> west-$SLURM_JOBID-local.log &
+
+# wait on host info file up to 1 min
+for ((n=0; n<60; n++)); do
+    if [ -e $SERVER_INFO ] ; then
+        echo "== server info file $SERVER_INFO =="
+        cat $SERVER_INFO
+        break
+    fi
+    sleep 1
+done
+
+# exit if host info file doesn't appear in one minute
+if ! [ -e $SERVER_INFO ] ; then
+    echo 'server failed to start'
+    exit 1
+fi
+export CUDA_VISIBLE_DEVICES=0
+echo $CUDA_VISIBLE_DEVICES
+for node in $(cat nodefilelist.txt); do
+    bash $PWD/node.sh $SLURM_SUBMIT_DIR $SLURM_JOBID $node $CUDA_VISIBLE_DEVICES --work-manager=zmq --n-workers=$num_gpu_per_node --zmq-mode=client --zmq-read-host-info=$SERVER_INFO --zmq-comm-mode=tcp &
+done
+wait
+""")
+        else:  # Default to Expanse
+            return Template("""#!/bin/bash
 #SBATCH --job-name="{{ protein_name }}_WE_run"
 #SBATCH --output="job.out"
 #SBATCH --partition=gpu-shared
@@ -313,7 +575,7 @@ if ! [ -e $SERVER_INFO ] ; then
     exit 1
 fi
 export CUDA_VISIBLE_DEVICES=0
-echo$CUDA_VISIBLE_DEVICES
+echo $CUDA_VISIBLE_DEVICES
 for node in $(cat nodefilelist.txt); do
     ssh -o StrictHostKeyChecking=no $node $PWD/node.sh $SLURM_SUBMIT_DIR $SLURM_JOBID $node $CUDA_VISIBLE_DEVICES --work-manager=zmq --n-workers=$num_gpu_per_node --zmq-mode=client --zmq-read-host-info=$SERVER_INFO --zmq-comm-mode=tcp &
 done
@@ -439,8 +701,9 @@ wait
             max_total_iterations=int(params['max_total_iterations'])
         )
         
-        # Generate env.sh
-        configs['env.sh'] = self.templates['env_sh'].render()
+        # Generate env.sh based on HPC system
+        hpc_system = params.get('hpc_system', 'expanse')
+        configs['env.sh'] = self._get_env_sh_template(hpc_system).render()
         
         # Generate commands for each CV
         cv_commands = []
@@ -480,8 +743,8 @@ wait
             email=params['email']
         )
         
-        # Generate run_WE.sh
-        configs['run_WE.sh'] = self.templates['run_we_sh'].render(
+        # Generate run_WE.sh based on HPC system
+        configs['run_WE.sh'] = self._get_run_we_sh_template(hpc_system).render(
             protein_name=params['protein_name'],
             account=params['account'],
             email=params['email']

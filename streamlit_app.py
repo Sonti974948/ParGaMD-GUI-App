@@ -126,10 +126,25 @@ def render_system_setup():
         col1, col2 = st.columns(2)
         
         with col1:
+            # HPC System Selection
+            hpc_systems = {
+                "expanse": "Expanse (SDSC)",
+                "tacc_frontera": "TACC Frontera", 
+                "hpc2_ucd": "HPC2 (UCD)"
+            }
+            
+            st.session_state.form_data['hpc_system'] = st.selectbox(
+                "HPC System",
+                options=list(hpc_systems.keys()),
+                format_func=lambda x: hpc_systems[x],
+                index=0,  # Default to Expanse
+                help="Select the HPC system you will be using for your simulation"
+            )
+            
             st.session_state.form_data['account'] = st.text_input(
                 "SLURM Account",
                 value=st.session_state.form_data.get('account', ''),
-                help="Your SLURM account name"
+                help="Your SLURM allocation account from which the units will be taken (#SBATCH --account=)"
             )
             
         with col2:
@@ -514,6 +529,7 @@ def render_review_and_edit():
         st.subheader("📋 Configuration Summary")
         st.json({
             "System": {
+                "HPC System": st.session_state.form_data.get('hpc_system', 'expanse'),
                 "Account": st.session_state.form_data.get('account', ''),
                 "Email": st.session_state.form_data.get('email', ''),
                 "Protein": st.session_state.form_data.get('protein_name', '')
